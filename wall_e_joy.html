@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Robot Teleoperation Controller</title>
+    <!-- Paho MQTT WebSocket Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js" type="text/javascript"></script>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --panel-bg: #1e293b;
+            --accent-color: #38bdf8;
+            --accent-glow: rgba(56, 189, 248, 0.35);
+            --text-color: #f8fafc;
+            --text-muted: #94a3b8;
+            --danger-color: #ef4444;
+            --success-color: #22c55e;
+            --border-color: #334155;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 1rem;
+        }
+
+        header {
+            width: 100%;
+            max-width: 600px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--accent-color);
+        }
+
+        .status-badge {
+            font-size: 0.85rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-weight: 600;
+            background-color: #334155;
+            color: var(--text-muted);
+            transition: all 0.3s ease;
+        }
+
+        .status-badge.connected {
+            background-color: rgba(34, 197, 94, 0.2);
+            color: var(--success-color);
+            border: 1px solid var(--success-color);
+        }
+
+        .status-badge.disconnected {
+            background-color: rgba(239, 68, 68, 0.2);
+            color: var(--danger-color);
+            border: 1px solid var(--danger-color);
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .panel {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1rem;
+        }
+
+        .panel-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* Config Form */
+        .grid-form {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .form-group.full-width {
+            grid-column: span 2;
+        }
+
+        label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        input {
+            background-color: #0f172a;
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: var(--accent-color);
+        }
+
+        .btn {
+            background-color: var(--accent-color);
+            color: #0f172a;
+            font-weight: 600;
+            padding: 0.6rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+            font-size: 0.9rem;
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+        }
+
+        .btn-danger {
+            background-color: var(--danger-color);
+            color: #ffffff;
+        }
+
+        /* Joystick Section */
+        .joystick-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem 0;
+            position: relative;
+        }
+
+        #joystickCanvas {
+            background: radial-gradient(circle, #1e293b 0%, #0f172a 100%);
+            border: 2px solid var(--border-color);
+            border-radius: 50%;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            touch-action: none;
+        }
+
+        /* Telemetry Readout */
+        .telemetry {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            background-color: #0f172a;
+            padding: 0.75rem;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+
+        .telemetry-item {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .telemetry-label {
+            color: var(--text-muted);
+        }
+
+        .telemetry-value {
+            color: var(--accent-color);
+            font-weight: bold;
+        }
+
+        /* Debug Console */
+        #logConsole {
+            height: 100px;
+            background-color: #090d16;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.5rem;
+            font-family: monospace;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        .log-entry {
+            margin-bottom: 0.25rem;
+        }
+
+        .log-entry.error { color: var(--danger-color); }
+        .log-entry.success { color: var(--success-color); }
+        .log-entry.info { color: var(--accent-color); }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Robot Teleop UI</h1>
+        <div id="statusBadge" class="status-badge disconnected">Disconnected</div>
+    </header>
+
+    <div class="container">
+        <!-- Configuration Panel -->
+        <div class="panel">
+            <div class="panel-title">EMQX Broker Connection Settings</div>
+            <div class="grid-form">
+                <div class="form-group full-width">
+                    <label for="mqttHost">Cluster Host URL</label>
+                    <input type="text" id="mqttHost" value="zd19d921.ala.us-east-1.emqxsl.com">
+                </div>
+                <div class="form-group">
+                    <label for="mqttPort">WSS Port</label>
+                    <input type="number" id="mqttPort" value="8084">
+                </div>
+                <div class="form-group">
+                    <label for="mqttTopic">Drive Topic</label>
+                    <input type="text" id="mqttTopic" value="robot/control/drive">
+                </div>
+                <div class="form-group">
+                    <label for="mqttUser">Username</label>
+                    <input type="text" id="mqttUser" value="wall_e">
+                </div>
+                <div class="form-group">
+                    <label for="mqttPass">Password</label>
+                    <input type="password" id="mqttPass" value="wall_e@20261012">
+                </div>
+                <div class="form-group full-width" style="margin-top: 0.5rem;">
+                    <button id="connectBtn" class="btn" onclick="toggleConnection()">Connect to Broker</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Joystick Control Panel -->
+        <div class="panel">
+            <div class="panel-title">Virtual Joystick Control (Touch / Mouse / WASD)</div>
+            <div class="joystick-container">
+                <canvas id="joystickCanvas" width="240" height="240"></canvas>
+            </div>
+            <div class="telemetry">
+                <div class="telemetry-item">
+                    <span class="telemetry-label">X (Steer):</span>
+                    <span id="valX" class="telemetry-value">0.00</span>
+                </div>
+                <div class="telemetry-item">
+                    <span class="telemetry-label">Y (Throttle):</span>
+                    <span id="valY" class="telemetry-value">0.00</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Logs -->
+        <div class="panel">
+            <div class="panel-title">System Diagnostic Log</div>
+            <div id="logConsole"></div>
+        </div>
+    </div>
+
+    <script>
+        // Global State Variables
+        let client = null;
+        let isConnected = false;
+        let publishTimer = null;
+        const PUBLISH_INTERVAL_MS = 50; // 20Hz update rate
+
+        // Vector State (-1.0 to 1.0)
+        let driveVector = { x: 0.0, y: 0.0 };
+        let activeKeys = { KeyW: false, KeyS: false, KeyA: false, KeyD: false };
+
+        // DOM Elements
+        const statusBadge = document.getElementById('statusBadge');
+        const connectBtn = document.getElementById('connectBtn');
+        const logConsole = document.getElementById('logConsole');
+        const valXDisplay = document.getElementById('valX');
+        const valYDisplay = document.getElementById('valY');
+
+        // Canvas / Joystick Mechanics
+        const canvas = document.getElementById('joystickCanvas');
+        const ctx = canvas.getContext('2d');
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const maxRadius = 80;
+        const knobRadius = 30;
+        let joystickPos = { x: centerX, y: centerY };
+        let isDragging = false;
+
+        // Logging Utility
+        function log(message, type = 'normal') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const time = new Date().toLocaleTimeString();
+            entry.textContent = `[${time}] ${message}`;
+            logConsole.appendChild(entry);
+            logConsole.scrollTop = logConsole.scrollHeight;
+        }
+
+        // Draw Joystick Graphics
+        function drawJoystick() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Outer boundary
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, maxRadius, 0, Math.PI * 2);
+            ctx.strokeStyle = '#334155';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+
+            // Center crosshairs
+            ctx.beginPath();
+            ctx.moveTo(centerX - 10, centerY); ctx.lineTo(centerX + 10, centerY);
+            ctx.moveTo(centerX, centerY - 10); ctx.lineTo(centerX, centerY + 10);
+            ctx.strokeStyle = '#475569';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Direction vector line
+            if (isDragging || driveVector.x !== 0 || driveVector.y !== 0) {
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY);
+                ctx.lineTo(joystickPos.x, joystickPos.y);
+                ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+
+            // Joystick Knob
+            ctx.beginPath();
+            ctx.arc(joystickPos.x, joystickPos.y, knobRadius, 0, Math.PI * 2);
+            ctx.fillStyle = isDragging ? '#38bdf8' : '#0284c7';
+            ctx.fill();
+            ctx.strokeStyle = '#f8fafc';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        // Update Drive Vectors and Telemetry UI
+        function updateVector(rawX, rawY) {
+            // Normalize coordinates from canvas to range [-1.0, 1.0]
+            let normX = (rawX - centerX) / maxRadius;
+            let normY = -(rawY - centerY) / maxRadius; // Invert Y so up is positive
+
+            // Clamp values
+            normX = Math.max(-1.0, Math.min(1.0, normX));
+            normY = Math.max(-1.0, Math.min(1.0, normY));
+
+            // Round to 2 decimal places
+            driveVector.x = parseFloat(normX.toFixed(2));
+            driveVector.y = parseFloat(normY.toFixed(2));
+
+            valXDisplay.textContent = driveVector.x.toFixed(2);
+            valYDisplay.textContent = driveVector.y.toFixed(2);
+        }
+
+        // Joystick Pointer Event Handlers
+        function handlePointerStart(e) {
+            isDragging = true;
+            handlePointerMove(e);
+        }
+
+        function handlePointerMove(e) {
+            if (!isDragging) return;
+            const rect = canvas.getBoundingClientRect();
+            const pointerX = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+            const pointerY = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+
+            const dx = pointerX - centerX;
+            const dy = pointerY - centerY;
+            const distance = Math.hypot(dx, dy);
+
+            if (distance <= maxRadius) {
+                joystickPos.x = pointerX;
+                joystickPos.y = pointerY;
+            } else {
+                const angle = Math.atan2(dy, dx);
+                joystickPos.x = centerX + Math.cos(angle) * maxRadius;
+                joystickPos.y = centerY + Math.sin(angle) * maxRadius;
+            }
+
+            updateVector(joystickPos.x, joystickPos.y);
+            drawJoystick();
+        }
+
+        function handlePointerEnd() {
+            if (!isDragging) return;
+            isDragging = false;
+            // Snap knob back to center
+            joystickPos.x = centerX;
+            joystickPos.y = centerY;
+            updateVector(centerX, centerY);
+            drawJoystick();
+            sendDriveVector(); // Emit immediate stop command
+        }
+
+        // Event Listeners for Touch/Mouse Joystick
+        canvas.addEventListener('mousedown', handlePointerStart);
+        window.addEventListener('mousemove', handlePointerMove);
+        window.addEventListener('mouseup', handlePointerEnd);
+
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); handlePointerStart(e); });
+        window.addEventListener('touchmove', handlePointerMove, { passive: false });
+        window.addEventListener('touchend', handlePointerEnd);
+
+        // Keyboard Drive Controls (WASD & Arrows)
+        window.addEventListener('keydown', (e) => {
+            if (['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+                if (e.code === 'KeyW' || e.code === 'ArrowUp') activeKeys.KeyW = true;
+                if (e.code === 'KeyS' || e.code === 'ArrowDown') activeKeys.KeyS = true;
+                if (e.code === 'KeyA' || e.code === 'ArrowLeft') activeKeys.KeyA = true;
+                if (e.code === 'KeyD' || e.code === 'ArrowRight') activeKeys.KeyD = true;
+                processKeyboardInput();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+                if (e.code === 'KeyW' || e.code === 'ArrowUp') activeKeys.KeyW = false;
+                if (e.code === 'KeyS' || e.code === 'ArrowDown') activeKeys.KeyS = false;
+                if (e.code === 'KeyA' || e.code === 'ArrowLeft') activeKeys.KeyA = false;
+                if (e.code === 'KeyD' || e.code === 'ArrowRight') activeKeys.KeyD = false;
+                processKeyboardInput();
+            }
+        });
+
+        function processKeyboardInput() {
+            let kY = 0;
+            let kX = 0;
+            if (activeKeys.KeyW) kY += 1.0;
+            if (activeKeys.KeyS) kY -= 1.0;
+            if (activeKeys.KeyA) kX -= 1.0;
+            if (activeKeys.KeyD) kX += 1.0;
+
+            joystickPos.x = centerX + (kX * maxRadius);
+            joystickPos.y = centerY - (kY * maxRadius);
+
+            updateVector(joystickPos.x, joystickPos.y);
+            drawJoystick();
+        }
+
+        // MQTT Transmission Logic
+        function sendDriveVector() {
+            if (!isConnected || !client) return;
+
+            const topic = document.getElementById('mqttTopic').value;
+            const payload = JSON.stringify({
+                x: driveVector.x,
+                y: driveVector.y
+            });
+
+            const message = new Paho.MQTT.Message(payload);
+            message.destinationName = topic;
+            message.qos = 0; // QoS 0 for low-latency teleoperation
+            client.send(message);
+        }
+
+        function startTransmissionLoop() {
+            if (publishTimer) clearInterval(publishTimer);
+            publishTimer = setInterval(() => {
+                // Publish continuously while joystick is off-center or being moved
+                if (driveVector.x !== 0 || driveVector.y !== 0 || isDragging) {
+                    sendDriveVector();
+                }
+            }, PUBLISH_INTERVAL_MS);
+        }
+
+        function stopTransmissionLoop() {
+            if (publishTimer) {
+                clearInterval(publishTimer);
+                publishTimer = null;
+            }
+        }
+
+        // MQTT Connection Management
+        function toggleConnection() {
+            if (isConnected) {
+                disconnectBroker();
+            } else {
+                connectBroker();
+            }
+        }
+
+        function connectBroker() {
+            const host = document.getElementById('mqttHost').value.trim();
+            const port = parseInt(document.getElementById('mqttPort').value);
+            const user = document.getElementById('mqttUser').value.trim();
+            const pass = document.getElementById('mqttPass').value.trim();
+
+            if (!host || !port) {
+                log('Please enter valid Host and Port.', 'error');
+                return;
+            }
+
+            const clientId = 'web_joystick_' + Math.random().toString(16).substr(2, 8);
+
+            log(`Connecting to wss://${host}:${port}...`, 'info');
+            connectBtn.disabled = true;
+
+            client = new Paho.MQTT.Client(host, port, clientId);
+
+            // Client Callbacks
+            client.onConnectionLost = onConnectionLost;
+
+            const options = {
+                useSSL: true, // Required for WSS Port 8084
+                timeout: 5,
+                onSuccess: onConnectSuccess,
+                onFailure: onConnectFailure
+            };
+
+            if (user) options.userName = user;
+            if (pass) options.password = pass;
+
+            try {
+                client.connect(options);
+            } catch (err) {
+                log(`Connection initialization error: ${err.message}`, 'error');
+                connectBtn.disabled = false;
+            }
+        }
+
+        function onConnectSuccess() {
+            isConnected = true;
+            log('Successfully connected to EMQX Broker!', 'success');
+            statusBadge.textContent = 'Connected';
+            statusBadge.className = 'status-badge connected';
+            connectBtn.textContent = 'Disconnect';
+            connectBtn.className = 'btn btn-danger';
+            connectBtn.disabled = false;
+
+            startTransmissionLoop();
+        }
+
+        function onConnectFailure(response) {
+            isConnected = false;
+            log(`Connection failed: ${response.errorMessage} (Code: ${response.errorCode})`, 'error');
+            statusBadge.textContent = 'Disconnected';
+            statusBadge.className = 'status-badge disconnected';
+            connectBtn.textContent = 'Connect to Broker';
+            connectBtn.className = 'btn';
+            connectBtn.disabled = false;
+        }
+
+        function onConnectionLost(response) {
+            isConnected = false;
+            stopTransmissionLoop();
+            if (response.errorCode !== 0) {
+                log(`Connection lost unexpectedly: ${response.errorMessage}`, 'error');
+            } else {
+                log('Disconnected from broker.', 'info');
+            }
+            statusBadge.textContent = 'Disconnected';
+            statusBadge.className = 'status-badge disconnected';
+            connectBtn.textContent = 'Connect to Broker';
+            connectBtn.className = 'btn';
+            connectBtn.disabled = false;
+        }
+
+        function disconnectBroker() {
+            if (client && isConnected) {
+                log('Disconnecting from broker...', 'info');
+                // Send zero vector before disconnecting
+                driveVector = { x: 0.0, y: 0.0 };
+                sendDriveVector();
+                client.disconnect();
+            }
+        }
+
+        // Initialize Canvas Rendering
+        drawJoystick();
+        log('Controller initialized. Click "Connect to Broker" to begin.', 'info');
+    </script>
+</body>
+</html>
